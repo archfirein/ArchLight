@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.5.3 — 2026-10-23
+
+- Fixed installer startup selection: disabling removes both current and legacy startup entries, and the selected value is saved to application preferences.
+- Added a dedicated uninstaller that requests a normal application exit, removes only owned files, preserves preferences, resolves the actual Desktop folder and removes startup entries.
+- Corrected the installer version label and made uninstall-registration failures visible.
+
 ## 0.5.2 — 2026-10-22
 
 - Fixed ObjectDisposedException during language and theme selection by retaining each dropdown menu until its owning control is disposed.

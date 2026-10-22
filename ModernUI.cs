@@ -128,7 +128,7 @@ namespace ArchLight
             _cardToggle.SetBounds(20,94,792,110);_btnToggle.SetBounds(18,14,756,44);
             _cardsBelowToggle[0].Size=new Size(386,260);_cardsBelowToggle[1].Size=new Size(386,260);_cardsBelowToggle[2].Size=new Size(792,100);
             _chkAutoStart.SetBounds(18,15,300,25);_chkMinimizeTray.SetBounds(18,49,320,25);_chkMinimizeTray.MaximumSize=new Size(350,0);
-            _btnExitApp.SetBounds(590,20,184,38);_lblFooter.SetBounds(370,65,404,22);_lblFooter.Text="ARCHLIGHT / DISPLAY COMFORT / 0.5.2";
+            _btnExitApp.SetBounds(590,20,184,38);_lblFooter.SetBounds(370,65,404,22);_lblFooter.Text="ARCHLIGHT / DISPLAY COMFORT / 0.5.3";
             _modernReady=true;ApplyThemeColors();ResumeLayout();LayoutToggleStatus();
         }
         void PaintTheme(Control parent)

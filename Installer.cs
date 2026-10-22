@@ -87,7 +87,7 @@ namespace ArchLightInstaller
 
             Label lblSub = new Label
             {
-                Text = "Akıllı Gece Modu & Mavi Işık Filtresi (v1.0)",
+                Text = "Akıllı Gece Modu & Mavi Işık Filtresi (v0.5.3)",
                 Font = new Font("Segoe UI", 9f),
                 ForeColor = Color.FromArgb(180, 180, 190),
                 Location = new Point(58, 28),
@@ -263,18 +263,15 @@ namespace ArchLightInstaller
                     CreateShortcut(Path.Combine(startMenu, "ArchLight.lnk"), targetExe, installDir);
                 }
 
-                // Remove the legacy startup entry even when startup is disabled.
-                using (RegistryKey legacyRun = Registry.CurrentUser.OpenSubKey(@"Software\Microsoft\Windows\CurrentVersion\Run", true))
-                    if (legacyRun != null) legacyRun.DeleteValue("ArcLight", false);
-                // Windows Başlangıç Kaydı
-                if (_chkAutoStart.Checked)
+                ArchLight.StartupRegistration.Set(_chkAutoStart.Checked, targetExe);
+                var settings = ArchLight.Settings.Load();
+                settings.AutoStart = _chkAutoStart.Checked;
+                settings.SaveTo(Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "ArcLight", "ayarlar.cfg"));
+                using (Stream resource = Assembly.GetExecutingAssembly().GetManifestResourceStream("Uninstall.exe"))
                 {
-                    using (RegistryKey key = Registry.CurrentUser.OpenSubKey(@"Software\Microsoft\Windows\CurrentVersion\Run", true))
-                    {
-                        if (key != null) { key.SetValue("ArchLight", "\"" + targetExe + "\""); key.DeleteValue("ArcLight", false); }
-                    }
+                    if (resource == null) throw new InvalidDataException("Uninstaller is missing.");
+                    using (var output = File.Create(Path.Combine(installDir, "Uninstall.exe"))) resource.CopyTo(output);
                 }
-
                 // Windows Program Ekle / Kaldır Kaydı (Uninstall)
                 RegisterUninstaller(installDir, targetExe);
 
@@ -321,15 +318,15 @@ namespace ArchLightInstaller
                     if (key != null)
                     {
                         key.SetValue("DisplayName", "ArchLight");
-                        key.SetValue("DisplayVersion", "0.5.2");
+                        key.SetValue("DisplayVersion", "0.5.3");
                         key.SetValue("Publisher", "ArchLight");
                         key.SetValue("DisplayIcon", targetExe);
                         key.SetValue("InstallLocation", installDir);
-                        key.SetValue("UninstallString", "cmd /c taskkill /f /im ArchLight.exe & timeout /t 1 >nul & rmdir /s /q \"" + installDir + "\" & del /q \"%USERPROFILE%\\Desktop\\ArchLight.lnk\" & del /q \"%APPDATA%\\Microsoft\\Windows\\Start Menu\\Programs\\ArchLight.lnk\" & reg delete HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\ArcLight /f");
+                        key.SetValue("UninstallString", "\"" + Path.Combine(installDir, "Uninstall.exe") + "\"");
                     }
                 }
             }
-            catch { }
+            catch { throw; }
         }
 
         private static Bitmap CreateLogoBitmap(int size) { return ArchLightBrand.LogoArtwork.Render(size); }

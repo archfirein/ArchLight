@@ -24,15 +24,18 @@ try {
         $stage = Join-Path $buildDirectory $architecture
         New-Item -ItemType Directory -Force -Path $stage | Out-Null
         $application = Join-Path $stage 'ArchLight.exe'
-        & $Compiler /nologo /codepage:65001 /deterministic+ /target:winexe "/platform:$architecture" /optimize+ /win32icon:app.ico "/out:$application" /r:System.Windows.Forms.dll /r:System.Drawing.dll /resource:logo.png,ArchLight.Logo.png Program.cs Settings.cs LogoArtwork.cs ModernUI.cs
+        & $Compiler /nologo /codepage:65001 /deterministic+ /target:winexe "/platform:$architecture" /optimize+ /win32icon:app.ico "/out:$application" /r:System.Windows.Forms.dll /r:System.Drawing.dll /resource:logo.png,ArchLight.Logo.png Program.cs Settings.cs StartupRegistration.cs LogoArtwork.cs ModernUI.cs
         if ($LASTEXITCODE -ne 0) { throw "Application build failed: $architecture" }
+        $uninstaller = Join-Path $stage 'Uninstall.exe'
+        & $Compiler /nologo /target:winexe "/platform:$architecture" /optimize+ "/out:$uninstaller" /r:System.Windows.Forms.dll Uninstaller.cs StartupRegistration.cs
+        if ($LASTEXITCODE -ne 0) { throw "Uninstaller build failed: $architecture" }
         $installer = Join-Path $OutputDirectory "ArchLight-Installer.win-$architecture.exe"
-        & $Compiler /nologo /codepage:65001 /deterministic+ /target:winexe "/platform:$architecture" /optimize+ /win32icon:app.ico "/out:$installer" "/resource:$application,ArchLight.exe" /r:System.Windows.Forms.dll /r:System.Drawing.dll /r:Microsoft.CSharp.dll /resource:logo.png,ArchLight.Logo.png Installer.cs LogoArtwork.cs
+        & $Compiler /nologo /codepage:65001 /deterministic+ /target:winexe "/platform:$architecture" /optimize+ /win32icon:app.ico "/out:$installer" "/resource:$application,ArchLight.exe" "/resource:$uninstaller,Uninstall.exe" /r:System.Windows.Forms.dll /r:System.Drawing.dll /r:Microsoft.CSharp.dll /resource:logo.png,ArchLight.Logo.png Installer.cs LogoArtwork.cs Settings.cs StartupRegistration.cs
         if ($LASTEXITCODE -ne 0) { throw "Installer build failed: $architecture" }
         Copy-Item -LiteralPath README.md -Destination (Join-Path $stage 'README.md')
         Compress-Archive -Path $application,(Join-Path $stage 'README.md') -DestinationPath (Join-Path $OutputDirectory "ArchLight.win-$architecture.zip") -Force
     }
-    $sourceFiles = @('Program.cs','ModernUI.cs','Settings.cs','Installer.cs','GenerateIcon.cs','LogoArtwork.cs','logo.png','app.ico','README.md','CHANGELOG.md','build-release.ps1','SettingsTests.cs','RecoveryTests.cs','BrandTests.cs','layout-results.txt')
+    $sourceFiles = @('Program.cs','StartupRegistration.cs','Uninstaller.cs','ModernUI.cs','Settings.cs','Installer.cs','GenerateIcon.cs','LogoArtwork.cs','logo.png','app.ico','README.md','CHANGELOG.md','build-release.ps1','SettingsTests.cs','RecoveryTests.cs','BrandTests.cs','layout-results.txt')
     Compress-Archive -Path $sourceFiles -DestinationPath (Join-Path $OutputDirectory 'Source.code.zip') -Force
     & tar -czf (Join-Path $OutputDirectory 'Source.code.tar.gz') @sourceFiles
     if ($LASTEXITCODE -ne 0) { throw 'Source tar archive failed' }
