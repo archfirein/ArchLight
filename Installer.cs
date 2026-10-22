@@ -1,0 +1,368 @@
+using System;
+using System.Drawing;
+using System.Drawing.Drawing2D;
+using System.IO;
+using System.Reflection;
+using System.Runtime.InteropServices;
+using System.Windows.Forms;
+using Microsoft.Win32;
+
+namespace ArchLightInstaller
+{
+    public class InstallerForm : Form
+    {
+        private Color _bgDark = Color.FromArgb(18, 18, 22);
+        private Color _cardDark = Color.FromArgb(28, 28, 34);
+        private Color _accentOrange = Color.FromArgb(249, 115, 22);
+        private Color _accentGold = Color.FromArgb(251, 191, 36);
+
+        private CheckBox _chkDesktop;
+        private CheckBox _chkStartMenu;
+        private CheckBox _chkAutoStart;
+        private CheckBox _chkLaunchNow;
+        private ProgressBar _progressBar;
+        private Label _lblStatus;
+        private Button _btnInstall;
+        private bool _installationComplete;
+        private string _installedExe;
+
+        [DllImport("dwmapi.dll", PreserveSig = true)]
+        private static extern int DwmSetWindowAttribute(IntPtr hwnd, int attr, ref int attrValue, int attrSize);
+
+        protected override void OnHandleCreated(EventArgs e)
+        {
+            base.OnHandleCreated(e);
+            try
+            {
+                int darkMode = 1;
+                DwmSetWindowAttribute(this.Handle, 20, ref darkMode, sizeof(int));
+                DwmSetWindowAttribute(this.Handle, 19, ref darkMode, sizeof(int));
+            }
+            catch { }
+        }
+
+        public InstallerForm()
+        {
+            this.Text = "ArchLight Kurulum Sihirbazı";
+            this.Size = new Size(500, 390);
+            this.StartPosition = FormStartPosition.CenterScreen;
+            this.FormBorderStyle = FormBorderStyle.FixedSingle;
+            this.MaximizeBox = false;
+            this.BackColor = _bgDark;
+            this.ForeColor = Color.White;
+            this.Font = new Font("Segoe UI", 9.5f, FontStyle.Regular);
+            this.Icon = CreateAppIcon();
+
+            InitializeUI();
+        }
+
+        private void InitializeUI()
+        {
+            // Üst Başlık ve Logo
+            Panel headerPanel = new Panel
+            {
+                Location = new Point(20, 16),
+                Size = new Size(446, 50),
+                BackColor = Color.Transparent
+            };
+
+            PictureBox picLogo = new PictureBox
+            {
+                Image = CreateLogoBitmap(42),
+                Size = new Size(42, 42),
+                Location = new Point(4, 2),
+                SizeMode = PictureBoxSizeMode.Zoom
+            };
+            headerPanel.Controls.Add(picLogo);
+
+            Label lblTitle = new Label
+            {
+                Text = "ArchLight Kurulumu",
+                Font = new Font("Segoe UI", 16f, FontStyle.Bold),
+                ForeColor = Color.White,
+                Location = new Point(56, 2),
+                AutoSize = true
+            };
+            headerPanel.Controls.Add(lblTitle);
+
+            Label lblSub = new Label
+            {
+                Text = "Akıllı Gece Modu & Mavi Işık Filtresi (v1.0)",
+                Font = new Font("Segoe UI", 9f),
+                ForeColor = Color.FromArgb(180, 180, 190),
+                Location = new Point(58, 28),
+                AutoSize = true
+            };
+            headerPanel.Controls.Add(lblSub);
+            this.Controls.Add(headerPanel);
+
+            // Seçenekler Kartı
+            Panel cardOptions = new Panel
+            {
+                Location = new Point(20, 78),
+                Size = new Size(446, 170),
+                BackColor = _cardDark
+            };
+            cardOptions.Paint += (s, e) =>
+            {
+                using (Pen p = new Pen(Color.FromArgb(50, 50, 60), 1))
+                {
+                    e.Graphics.DrawRectangle(p, 0, 0, cardOptions.Width - 1, cardOptions.Height - 1);
+                }
+            };
+
+            Label lblOptsTitle = new Label
+            {
+                Text = "Kurulum Seçenekleri",
+                Font = new Font("Segoe UI", 10f, FontStyle.Bold),
+                ForeColor = _accentGold,
+                Location = new Point(14, 12),
+                AutoSize = true
+            };
+            cardOptions.Controls.Add(lblOptsTitle);
+
+            _chkDesktop = new CheckBox
+            {
+                Text = "Masaüstü kısayolu oluştur",
+                Location = new Point(18, 42),
+                AutoSize = true,
+                Checked = true,
+                ForeColor = Color.White,
+                Cursor = Cursors.Hand
+            };
+            cardOptions.Controls.Add(_chkDesktop);
+
+            _chkStartMenu = new CheckBox
+            {
+                Text = "Başlat Menüsüne ekle",
+                Location = new Point(18, 70),
+                AutoSize = true,
+                Checked = true,
+                ForeColor = Color.White,
+                Cursor = Cursors.Hand
+            };
+            cardOptions.Controls.Add(_chkStartMenu);
+
+            _chkAutoStart = new CheckBox
+            {
+                Text = "Windows açıldığında otomatik başlasın",
+                Location = new Point(18, 98),
+                AutoSize = true,
+                Checked = true,
+                ForeColor = Color.White,
+                Cursor = Cursors.Hand
+            };
+            cardOptions.Controls.Add(_chkAutoStart);
+
+            _chkLaunchNow = new CheckBox
+            {
+                Text = "Kurulum tamamlandığında ArchLight'ı çalıştır",
+                Location = new Point(18, 126),
+                AutoSize = true,
+                Checked = true,
+                ForeColor = Color.White,
+                Cursor = Cursors.Hand
+            };
+            cardOptions.Controls.Add(_chkLaunchNow);
+
+            this.Controls.Add(cardOptions);
+
+            // İlerleme ve Durum
+            _lblStatus = new Label
+            {
+                Text = "Kuruluma hazır.",
+                Location = new Point(20, 258),
+                Size = new Size(446, 20),
+                ForeColor = Color.FromArgb(200, 200, 210),
+                Font = new Font("Segoe UI", 9f)
+            };
+            this.Controls.Add(_lblStatus);
+
+            _progressBar = new ProgressBar
+            {
+                Location = new Point(20, 280),
+                Size = new Size(446, 12),
+                Visible = false
+            };
+            this.Controls.Add(_progressBar);
+
+            // Buton
+            _btnInstall = new Button
+            {
+                Text = "🚀 Hemen Kur",
+                Location = new Point(20, 302),
+                Size = new Size(446, 42),
+                FlatStyle = FlatStyle.Flat,
+                BackColor = _accentOrange,
+                ForeColor = Color.White,
+                Font = new Font("Segoe UI", 11f, FontStyle.Bold),
+                Cursor = Cursors.Hand
+            };
+            _btnInstall.FlatAppearance.BorderSize = 0;
+            _btnInstall.Click += (s, e) => { if (_installationComplete) { if (_chkLaunchNow.Checked) System.Diagnostics.Process.Start(_installedExe); Application.Exit(); } else StartInstallation(); };
+            this.Controls.Add(_btnInstall);
+        }
+
+        private void StartInstallation()
+        {
+            _btnInstall.Enabled = false;
+            _progressBar.Visible = true;
+            _progressBar.Value = 10;
+            _lblStatus.Text = "Açık çalışan ArchLight süreçleri kontrol ediliyor...";
+            Application.DoEvents();
+
+            try
+            {
+                string existingExe = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "ArcLight", "ArchLight.exe");
+                foreach (string processName in new string[] { "ArchLight", "ArcLight" })
+                foreach (var process in System.Diagnostics.Process.GetProcessesByName(processName))
+                {
+                    using (process)
+                    {
+                        if (!process.HasExited && (string.Equals(process.MainModule.FileName, existingExe, StringComparison.OrdinalIgnoreCase) || string.Equals(process.MainModule.FileName, Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "ArcLight", "ArcLight.exe"), StringComparison.OrdinalIgnoreCase)))
+                            throw new IOException("Önce ArchLight içindeki Çık düğmesiyle uygulamayı kapatın, sonra yeniden deneyin.");
+                    }
+                }
+                _progressBar.Value = 30;
+                _lblStatus.Text = "ArchLight dosyaları kopyalanıyor...";
+                Application.DoEvents();
+                // Hedef Klasör: %LOCALAPPDATA%\ArchLight
+                string localAppData = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
+                string installDir = Path.Combine(localAppData, "ArcLight");
+                if (!Directory.Exists(installDir)) Directory.CreateDirectory(installDir);
+
+                string targetExe = Path.Combine(installDir, "ArchLight.exe");
+
+                using (Stream resource = Assembly.GetExecutingAssembly().GetManifestResourceStream("ArchLight.exe"))
+                {
+                    if (resource == null) throw new InvalidDataException("Uygulama dosyası kurulum paketinde bulunamadı.");
+                    string stagedExe = targetExe + ".new";
+                    using (FileStream output = new FileStream(stagedExe, FileMode.Create, FileAccess.Write))
+                    {
+                        resource.CopyTo(output);
+                        output.Flush(true);
+                    }
+                    if (File.Exists(targetExe)) File.Replace(stagedExe, targetExe, targetExe + ".bak", true);
+                    else File.Move(stagedExe, targetExe);
+                }
+                _progressBar.Value = 60;
+                _lblStatus.Text = "Kısayollar ve kayıtlar oluşturuluyor...";
+                Application.DoEvents();
+
+                // Masaüstü Kısayolu
+                if (_chkDesktop.Checked)
+                {
+                    string desktop = Environment.GetFolderPath(Environment.SpecialFolder.DesktopDirectory);
+                    CreateShortcut(Path.Combine(desktop, "ArchLight.lnk"), targetExe, installDir);
+                }
+
+                // Başlat Menüsü Kısayolu
+                if (_chkStartMenu.Checked)
+                {
+                    string startMenu = Environment.GetFolderPath(Environment.SpecialFolder.Programs);
+                    CreateShortcut(Path.Combine(startMenu, "ArchLight.lnk"), targetExe, installDir);
+                }
+
+                // Remove the legacy startup entry even when startup is disabled.
+                using (RegistryKey legacyRun = Registry.CurrentUser.OpenSubKey(@"Software\Microsoft\Windows\CurrentVersion\Run", true))
+                    if (legacyRun != null) legacyRun.DeleteValue("ArcLight", false);
+                // Windows Başlangıç Kaydı
+                if (_chkAutoStart.Checked)
+                {
+                    using (RegistryKey key = Registry.CurrentUser.OpenSubKey(@"Software\Microsoft\Windows\CurrentVersion\Run", true))
+                    {
+                        if (key != null) { key.SetValue("ArchLight", "\"" + targetExe + "\""); key.DeleteValue("ArcLight", false); }
+                    }
+                }
+
+                // Windows Program Ekle / Kaldır Kaydı (Uninstall)
+                RegisterUninstaller(installDir, targetExe);
+
+                _progressBar.Value = 100;
+                _lblStatus.Text = "✅ ArchLight başarıyla kuruldu!";
+                _lblStatus.ForeColor = Color.FromArgb(74, 222, 128);
+
+                _btnInstall.Text = "🎉 Tamamla ve Kapat";
+                _btnInstall.BackColor = Color.FromArgb(22, 101, 52);
+                _btnInstall.Enabled = true;
+                _installedExe = targetExe;
+                _installationComplete = true;
+            }
+            catch (Exception ex)
+            {
+                _lblStatus.Text = "Hata: " + ex.Message;
+                _lblStatus.ForeColor = Color.Red;
+                _btnInstall.Enabled = true;
+            }
+        }
+
+        private void CreateShortcut(string shortcutPath, string targetPath, string workDir)
+        {
+            try
+            {
+                Type shellType = Type.GetTypeFromProgID("WScript.Shell");
+                dynamic shell = Activator.CreateInstance(shellType);
+                dynamic shortcut = shell.CreateShortcut(shortcutPath);
+                shortcut.TargetPath = targetPath;
+                shortcut.WorkingDirectory = workDir;
+                shortcut.Description = "ArchLight - Akıllı Gece Modu & Mavi Işık Filtresi";
+                shortcut.Save();
+            }
+            catch { }
+        }
+
+        private void RegisterUninstaller(string installDir, string targetExe)
+        {
+            try
+            {
+                string keyPath = @"Software\Microsoft\Windows\CurrentVersion\Uninstall\ArcLight";
+                using (RegistryKey key = Registry.CurrentUser.CreateSubKey(keyPath))
+                {
+                    if (key != null)
+                    {
+                        key.SetValue("DisplayName", "ArchLight");
+                        key.SetValue("DisplayVersion", "0.5.2");
+                        key.SetValue("Publisher", "ArchLight");
+                        key.SetValue("DisplayIcon", targetExe);
+                        key.SetValue("InstallLocation", installDir);
+                        key.SetValue("UninstallString", "cmd /c taskkill /f /im ArchLight.exe & timeout /t 1 >nul & rmdir /s /q \"" + installDir + "\" & del /q \"%USERPROFILE%\\Desktop\\ArchLight.lnk\" & del /q \"%APPDATA%\\Microsoft\\Windows\\Start Menu\\Programs\\ArchLight.lnk\" & reg delete HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\ArcLight /f");
+                    }
+                }
+            }
+            catch { }
+        }
+
+        private static Bitmap CreateLogoBitmap(int size) { return ArchLightBrand.LogoArtwork.Render(size); }
+
+        [DllImport("user32.dll", SetLastError = true)]
+        private static extern bool DestroyIcon(IntPtr hIcon);
+
+        private static Icon CreateAppIcon()
+        {
+            try
+            {
+                Icon assoc = Icon.ExtractAssociatedIcon(Application.ExecutablePath);
+                if (assoc != null) return assoc;
+            }
+            catch { }
+            using (Bitmap bmp = CreateLogoBitmap(48))
+            {
+                IntPtr hIcon = bmp.GetHicon();
+                try { return (Icon)Icon.FromHandle(hIcon).Clone(); } finally { DestroyIcon(hIcon); }
+            }
+        }
+
+        [STAThread]
+        static void Main()
+        {
+            Application.EnableVisualStyles();
+            Application.SetCompatibleTextRenderingDefault(false);
+            Application.Run(new InstallerForm());
+        }
+    }
+}
+
+
+
+
+

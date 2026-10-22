@@ -1,0 +1,1 @@
+ArchLight 0.5.0 validation: PASS 210 theme/language/schedule/filter layout combinations; PASS five theme persistence round trips; PASS 15 settings recovery tests; PASS slider keyboard steps, endpoints and clamping. x86/ARM64 hardware not tested.
