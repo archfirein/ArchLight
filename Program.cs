@@ -13,8 +13,8 @@ using Microsoft.Win32;
 
 [assembly: CompilationRelaxations(8)]
 [assembly: RuntimeCompatibility(WrapNonExceptionThrows = true)]
-[assembly: AssemblyVersion("0.5.3.0")]
-[assembly: AssemblyFileVersion("0.5.3.0")]
+[assembly: AssemblyVersion("0.5.4.0")]
+[assembly: AssemblyFileVersion("0.5.4.0")]
 namespace ArchLight
 {
 	public static class GammaController
@@ -1547,7 +1547,7 @@ namespace ArchLight
 			{
 				Location = new Point(10, 88),
 				Size = new Size(362, 22),
-				Text = "ArchLight v0.5.3  •  x64 / x86 / ARM64  •  Hafif & Güvenli",
+				Text = "ArchLight v0.5.4  •  x64 / x86 / ARM64  •  Hafif & Güvenli",
 				Font = new Font("Segoe UI", 8f),
 				ForeColor = Color.FromArgb(190, 190, 205),
 				TextAlign = ContentAlignment.MiddleCenter

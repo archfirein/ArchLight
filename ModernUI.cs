@@ -23,8 +23,15 @@ namespace ArchLight
     }
     internal class ModernButton : Button
     {
+        bool mouseFocus;
+        protected bool KeyboardFocus { get { return Focused && ShowFocusCues && !mouseFocus; } }
         public ModernButton() { DoubleBuffered=true; }
-        protected override void OnPaint(PaintEventArgs e) {e.Graphics.Clear(Parent.BackColor);e.Graphics.SmoothingMode=SmoothingMode.AntiAlias;using(var p=Shapes.Round(new Rectangle(0,0,Width-1,Height-1),10))using(var b=new SolidBrush(BackColor))e.Graphics.FillPath(b,p);TextRenderer.DrawText(e.Graphics,Text,Font,new Rectangle(6,2,Width-12,Height-4),ForeColor,TextFormatFlags.HorizontalCenter|TextFormatFlags.VerticalCenter|TextFormatFlags.WordBreak);if(Focused)ControlPaint.DrawFocusRectangle(e.Graphics,Rectangle.Inflate(ClientRectangle,-5,-5));}
+        protected override void OnGotFocus(EventArgs e) { mouseFocus=false; base.OnGotFocus(e); Invalidate(); }
+        protected override void OnLostFocus(EventArgs e) { base.OnLostFocus(e); Invalidate(); }
+        protected override void OnMouseDown(MouseEventArgs e) { base.OnMouseDown(e); mouseFocus=true; Invalidate(); }
+        protected override void OnKeyDown(KeyEventArgs e) { mouseFocus=false; base.OnKeyDown(e); Invalidate(); }
+        protected override void OnChangeUICues(UICuesEventArgs e) { base.OnChangeUICues(e); Invalidate(); }
+        protected override void OnPaint(PaintEventArgs e) {e.Graphics.Clear(Parent.BackColor);e.Graphics.SmoothingMode=SmoothingMode.AntiAlias;using(var p=Shapes.Round(new Rectangle(0,0,Width-1,Height-1),10))using(var b=new SolidBrush(BackColor))e.Graphics.FillPath(b,p);TextRenderer.DrawText(e.Graphics,Text,Font,new Rectangle(6,2,Width-12,Height-4),ForeColor,TextFormatFlags.HorizontalCenter|TextFormatFlags.VerticalCenter|TextFormatFlags.WordBreak);if(KeyboardFocus)using(var focus=Shapes.Round(Rectangle.Inflate(ClientRectangle,-4,-4),7))using(var pen=new Pen(ForeColor,1))e.Graphics.DrawPath(pen,focus);}
         protected override void OnResize(EventArgs e) {base.OnResize(e);if(Width<1||Height<1)return;using(var p=Shapes.Round(ClientRectangle,10)){var old=Region;Region=new Region(p);if(old!=null)old.Dispose();}}
     }
     internal class ChoiceButton : ModernButton
@@ -32,13 +39,13 @@ namespace ArchLight
         readonly ComboBox source;
         readonly ContextMenuStrip menu = new ContextMenuStrip { ShowImageMargin = false };
         public Color Accent {get;set;}
-        public bool AccentBorder {get;set;}
-        public ChoiceButton(ComboBox source) {this.source=source;AccessibleRole=AccessibleRole.ButtonDropDown;source.SelectedIndexChanged+=delegate{Invalidate();};}
+
+        public ChoiceButton(ComboBox source) {this.source=source;AccessibleRole=AccessibleRole.ButtonDropDown;source.SelectedIndexChanged+=delegate{Invalidate();};menu.Opened+=delegate{Invalidate();};menu.Closed+=delegate{Invalidate();};}
         string Caption {get{string text=source.SelectedItem==null?"":source.SelectedItem.ToString();return text.Length>0&&char.IsSurrogate(text[0])&&text.IndexOf(' ')>=0?text.Substring(text.IndexOf(' ')+1):text;}}
         protected override void OnPaint(PaintEventArgs e)
         {
             var g=e.Graphics;g.Clear(Parent.BackColor);g.SmoothingMode=SmoothingMode.AntiAlias;
-            using(var p=Shapes.Round(new Rectangle(1,1,Width-3,Height-3),11))using(var b=new SolidBrush(BackColor))using(var pen=new Pen(AccentBorder||Focused?Accent:Color.FromArgb(60,70,86),1)){g.FillPath(b,p);g.DrawPath(pen,p);}
+            using(var p=Shapes.Round(new Rectangle(1,1,Width-3,Height-3),11))using(var b=new SolidBrush(BackColor))using(var pen=new Pen(KeyboardFocus||menu.Visible?Accent:ControlPaint.Light(BackColor,0.15f),1)){g.FillPath(b,p);g.DrawPath(pen,p);}
             TextRenderer.DrawText(g,Caption,Font,new Rectangle(14,0,Width-42,Height),ForeColor,TextFormatFlags.VerticalCenter|TextFormatFlags.EndEllipsis);
             using(var pen=new Pen(Accent,2)){g.DrawLines(pen,new[]{new Point(Width-25,Height/2-2),new Point(Width-20,Height/2+3),new Point(Width-15,Height/2-2)});}
         }
@@ -117,7 +124,7 @@ namespace ArchLight
             foreach(var combo in new[]{_themePicker,_cbLanguage,_cbCity}) {combo.DrawMode=DrawMode.OwnerDrawFixed;combo.ItemHeight=24;combo.DrawItem+=delegate(object sender,DrawItemEventArgs e){if(e.Index<0)return;var box=(ComboBox)sender;using(var brush=new SolidBrush(box.BackColor))e.Graphics.FillRectangle(brush,e.Bounds);TextRenderer.DrawText(e.Graphics,box.Items[e.Index].ToString(),box.Font,Rectangle.Inflate(e.Bounds,-6,0),box.ForeColor,TextFormatFlags.VerticalCenter|TextFormatFlags.Left);e.DrawFocusRectangle();};}
             _themePicker.Visible=false;_cbLanguage.Visible=false;
             _themeCaption=new Label{Bounds=new Rectangle(350,0,145,18)};_languageCaption=new Label{Bounds=new Rectangle(510,0,174,18)};
-            _themeChoice=new ChoiceButton(_themePicker){Bounds=new Rectangle(350,20,145,34),AccentBorder=true,FlatStyle=FlatStyle.Flat};
+            _themeChoice=new ChoiceButton(_themePicker){Bounds=new Rectangle(350,20,145,34),FlatStyle=FlatStyle.Flat};
             _languageChoice=new ChoiceButton(_cbLanguage){Bounds=new Rectangle(510,20,174,34),FlatStyle=FlatStyle.Flat};
             header.Controls.AddRange(new Control[]{_themeCaption,_languageCaption,_themeChoice,_languageChoice});
             var minimize=new ModernButton{Text="−",AccessibleName="Minimize",Bounds=new Rectangle(700,20,40,34),FlatStyle=FlatStyle.Flat};
@@ -128,7 +135,7 @@ namespace ArchLight
             _cardToggle.SetBounds(20,94,792,110);_btnToggle.SetBounds(18,14,756,44);
             _cardsBelowToggle[0].Size=new Size(386,260);_cardsBelowToggle[1].Size=new Size(386,260);_cardsBelowToggle[2].Size=new Size(792,100);
             _chkAutoStart.SetBounds(18,15,300,25);_chkMinimizeTray.SetBounds(18,49,320,25);_chkMinimizeTray.MaximumSize=new Size(350,0);
-            _btnExitApp.SetBounds(590,20,184,38);_lblFooter.SetBounds(370,65,404,22);_lblFooter.Text="ARCHLIGHT / DISPLAY COMFORT / 0.5.3";
+            _btnExitApp.SetBounds(590,20,184,38);_lblFooter.SetBounds(370,65,404,22);_lblFooter.Text="ARCHLIGHT / DISPLAY COMFORT / 0.5.4";
             _modernReady=true;ApplyThemeColors();ResumeLayout();LayoutToggleStatus();
         }
         void PaintTheme(Control parent)

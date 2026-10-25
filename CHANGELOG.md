@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.5.4 — 2026-10-25
+
+- Removed the permanently accented theme-selector border; both selectors are neutral while idle and highlighted while open or keyboard-focused.
+- Replaced rectangular button focus marks with rounded keyboard-only outlines; mouse clicks no longer leave a focus rectangle behind.
+- Refresh focus and menu borders when focus, input cues or menu visibility changes.
+
 ## 0.5.3 — 2026-10-23
 
 - Fixed installer startup selection: disabling removes both current and legacy startup entries, and the selected value is saved to application preferences.

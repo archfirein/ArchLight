@@ -87,7 +87,7 @@ namespace ArchLightInstaller
 
             Label lblSub = new Label
             {
-                Text = "Akıllı Gece Modu & Mavi Işık Filtresi (v0.5.3)",
+                Text = "Akıllı Gece Modu & Mavi Işık Filtresi (v0.5.4)",
                 Font = new Font("Segoe UI", 9f),
                 ForeColor = Color.FromArgb(180, 180, 190),
                 Location = new Point(58, 28),
@@ -318,7 +318,7 @@ namespace ArchLightInstaller
                     if (key != null)
                     {
                         key.SetValue("DisplayName", "ArchLight");
-                        key.SetValue("DisplayVersion", "0.5.3");
+                        key.SetValue("DisplayVersion", "0.5.4");
                         key.SetValue("Publisher", "ArchLight");
                         key.SetValue("DisplayIcon", targetExe);
                         key.SetValue("InstallLocation", installDir);

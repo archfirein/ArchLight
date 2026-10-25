@@ -2,7 +2,7 @@
 
 A lightweight Windows night-light utility with adjustable screen color temperature, brightness controls, automatic scheduling, and a customizable interface.
 
-## Download ArchLight 0.5.3
+## Download ArchLight 0.5.4
 
 Download the package for your Windows architecture from [Releases](https://github.com/archfirein/ArchLight/releases/latest).
 
@@ -44,7 +44,7 @@ The application is named **ArchLight**. For compatibility with earlier ArcLight 
 
 ## About this publication
 
-Version **0.5.2** was the first publication in this recreated repository; **0.5.3** fixes startup and uninstall behavior. The existing version number is retained so installed copies and release packages remain consistent. It includes the refreshed five-theme interface, localized selectors, a single integrated title/header, and the fix for the disposed dropdown-menu error that previously prevented theme or language changes.
+Version **0.5.2** was the first publication in this recreated repository; **0.5.4** fixes startup and uninstall behavior. The existing version number is retained so installed copies and release packages remain consistent. It includes the refreshed five-theme interface, localized selectors, a single integrated title/header, and the fix for the disposed dropdown-menu error that previously prevented theme or language changes.
 
 ## Verification and limitations
 
