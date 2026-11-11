@@ -120,7 +120,7 @@ namespace ArchLight
             _themePicker=new ComboBox {DropDownStyle=ComboBoxStyle.DropDownList,FlatStyle=FlatStyle.Flat,Bounds=new Rectangle(408,12,174,30),AccessibleName="Theme"};
             _themePicker.Items.AddRange(new object[]{"Yellow","White","Red","Blue","Black"});
             string[] themes={"yellow","white","red","blue","black"};_themePicker.SelectedIndex=Math.Max(0,Array.IndexOf(themes,_settings.Theme));
-            _themePicker.SelectedIndexChanged+=delegate{if(_syncThemeNames||_themePicker.SelectedIndex<0)return;_settings.Theme=themes[_themePicker.SelectedIndex];ApplyThemeColors();_saveSettings(_settings);};header.Controls.Add(_themePicker);
+            _themePicker.SelectedIndexChanged+=delegate{if(_syncThemeNames||_themePicker.SelectedIndex<0)return;_settings.Theme=themes[_themePicker.SelectedIndex];ApplyThemeColors();_settings.Save();};header.Controls.Add(_themePicker);
             foreach(var combo in new[]{_themePicker,_cbLanguage,_cbCity}) {combo.DrawMode=DrawMode.OwnerDrawFixed;combo.ItemHeight=24;combo.DrawItem+=delegate(object sender,DrawItemEventArgs e){if(e.Index<0)return;var box=(ComboBox)sender;using(var brush=new SolidBrush(box.BackColor))e.Graphics.FillRectangle(brush,e.Bounds);TextRenderer.DrawText(e.Graphics,box.Items[e.Index].ToString(),box.Font,Rectangle.Inflate(e.Bounds,-6,0),box.ForeColor,TextFormatFlags.VerticalCenter|TextFormatFlags.Left);e.DrawFocusRectangle();};}
             _themePicker.Visible=false;_cbLanguage.Visible=false;
             _themeCaption=new Label{Bounds=new Rectangle(350,0,145,18)};_languageCaption=new Label{Bounds=new Rectangle(510,0,174,18)};
@@ -135,7 +135,7 @@ namespace ArchLight
             _cardToggle.SetBounds(20,94,792,110);_btnToggle.SetBounds(18,14,756,44);
             _cardsBelowToggle[0].Size=new Size(386,260);_cardsBelowToggle[1].Size=new Size(386,260);_cardsBelowToggle[2].Size=new Size(792,100);
             _chkAutoStart.SetBounds(18,15,300,25);_chkMinimizeTray.SetBounds(18,49,320,25);_chkMinimizeTray.MaximumSize=new Size(350,0);
-            _btnExitApp.SetBounds(590,20,184,38);_lblFooter.SetBounds(370,65,404,22);_lblFooter.Text="ARCHLIGHT / DISPLAY COMFORT / 0.5.5";
+            _btnExitApp.SetBounds(590,20,184,38);_lblFooter.SetBounds(370,65,404,22);_lblFooter.Text="ARCHLIGHT / DISPLAY COMFORT / 0.5.4";
             _modernReady=true;ApplyThemeColors();ResumeLayout();LayoutToggleStatus();
         }
         void PaintTheme(Control parent)
