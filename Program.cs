@@ -13,10 +13,26 @@ using Microsoft.Win32;
 
 [assembly: CompilationRelaxations(8)]
 [assembly: RuntimeCompatibility(WrapNonExceptionThrows = true)]
-[assembly: AssemblyVersion("0.5.4.0")]
-[assembly: AssemblyFileVersion("0.5.4.0")]
+[assembly: AssemblyVersion("0.5.5.0")]
+[assembly: AssemblyFileVersion("0.5.5.0")]
 namespace ArchLight
 {
+    internal interface IDisplayFilter
+    {
+        void Capture();
+        void Apply(int kelvin, int brightness);
+        void Restore();
+        void Recover();
+    }
+
+    internal sealed class DisplayFilter : IDisplayFilter
+    {
+        public void Capture() { GammaController.SaveOriginal(); }
+        public void Apply(int kelvin, int brightness) { GammaController.SetColorTemperatureAndBrightness(kelvin, brightness); }
+        public void Restore() { GammaController.RestoreDefault(); }
+        public void Recover() { GammaController.EnsureApplied(); }
+    }
+
 	public static class GammaController
 	{
 		public struct RAMP
@@ -74,11 +90,14 @@ namespace ArchLight
         internal static bool Recover(Func<RAMP?> read, Func<RAMP, bool> write, DateTime now)
         {
             if (!ExpectedRamp.HasValue || now < _nextRecovery) return false;
+            try
+            {
             RAMP desired = ExpectedRamp.Value;
             RAMP? actual = read();
             if (actual.HasValue && RampsMatch(actual.Value, desired))
             {
                 _recoveryFailures = 0;
+                _nextRecovery = now.AddSeconds(2);
                 return false;
             }
             // Only rewrite on a measured mismatch; unavailable displays are retried later.
@@ -89,8 +108,16 @@ namespace ArchLight
                 restored = verified.HasValue && RampsMatch(verified.Value, desired);
             }
             _recoveryFailures = restored ? 0 : Math.Min(4, _recoveryFailures + 1);
-            _nextRecovery = now.AddMilliseconds(restored ? 500 : 500 * (1 << _recoveryFailures));
+            _nextRecovery = now.AddMilliseconds(restored ? 2000 : 500 * (1 << _recoveryFailures));
             return restored;
+            }
+            catch
+            {
+                // Driver exceptions must use the same backoff as rejected writes.
+                _recoveryFailures = Math.Min(4, _recoveryFailures + 1);
+                _nextRecovery = now.AddMilliseconds(500 * (1 << _recoveryFailures));
+                return false;
+            }
         }
 
         internal static void SetExpected(RAMP ramp)
@@ -112,38 +139,13 @@ namespace ArchLight
 		[DllImport("user32.dll")]
 		public static extern int ReleaseDC(IntPtr hWnd, IntPtr hDC);
 
-		public static void SaveOriginal()
-		{
-			try
-			{
-				IntPtr dC = GetDC(IntPtr.Zero);
-				if (!(dC != IntPtr.Zero))
-				{
-					return;
-				}
-				try
-				{
-					RAMP lpRamp = new RAMP
-					{
-						Red = new ushort[256],
-						Green = new ushort[256],
-						Blue = new ushort[256]
-					};
-					if (GetDeviceGammaRamp(dC, ref lpRamp))
-					{
-						_originalRamp = lpRamp;
-					}
-				}
-				finally
-				{
-					ReleaseDC(IntPtr.Zero, dC);
-				}
-			}
-			catch
-			{
-			}
-		}
+        public static void SaveOriginal() { SaveOriginal(ReadRamp); }
 
+        internal static void SaveOriginal(Func<RAMP?> read)
+        {
+            try { _originalRamp = read(); }
+            catch { _originalRamp = null; }
+        }
 		public static void SetColorTemperatureAndBrightness(int kelvin, int brightnessPercent)
 		{
 			try
@@ -193,20 +195,19 @@ namespace ArchLight
 
 		public static void RestoreDefault()
 		{
+            RestoreDefault(WriteRamp);
+        }
+
+        internal static bool RestoreDefault(Func<RAMP, bool> write)
+        {
+            bool hadFilter = ExpectedRamp.HasValue;
+            ExpectedRamp = null;
+            if (!hadFilter) return true;
 			try
 			{
-				IntPtr dC = GetDC(IntPtr.Zero);
-				if (!(dC != IntPtr.Zero))
-				{
-					return;
-				}
-				try
-				{
 					if (_originalRamp.HasValue)
 					{
-						RAMP lpRamp = _originalRamp.Value;
-						SetDeviceGammaRamp(dC, ref lpRamp);
-						return;
+                        return write(_originalRamp.Value);
 					}
 					RAMP lpRamp2 = new RAMP
 					{
@@ -221,15 +222,11 @@ namespace ArchLight
 						lpRamp2.Green[i] = num;
 						lpRamp2.Blue[i] = num;
 					}
-					SetDeviceGammaRamp(dC, ref lpRamp2);
-				}
-				finally
-				{
-					ReleaseDC(IntPtr.Zero, dC);
-				}
+                    return write(lpRamp2);
 			}
 			catch
 			{
+                return false;
 			}
 		}
 
@@ -737,6 +734,11 @@ namespace ArchLight
 		private const uint WM_SETICON = 128u;
 
 		private Settings _settings;
+        private readonly IDisplayFilter _display;
+        private readonly Action<Settings> _saveSettings;
+        private System.Windows.Forms.Timer _displayRefreshTimer;
+        private bool _refreshScheduleOnDisplayChange;
+        private bool _resourcesReleased;
 
 		private NotifyIcon _trayIcon;
 
@@ -886,11 +888,15 @@ namespace ArchLight
 		[DllImport("dwmapi.dll")]
 		private static extern int DwmSetWindowAttribute(IntPtr hwnd, int attr, ref int attrValue, int attrSize);
 
-		public MainForm()
+		public MainForm() : this(Settings.Load(), new DisplayFilter(), s => s.Save()) { }
+
+        internal MainForm(Settings settings, IDisplayFilter display, Action<Settings> saveSettings)
 		{
-			_settings = Settings.Load();
+            _settings = settings;
+            _display = display;
+            _saveSettings = saveSettings;
 			Loc.CurrentLang = _settings.Language;
-			GammaController.SaveOriginal();
+            _display.Capture();
 			base.Icon = CreateAppIcon();
 			SetupDebounceTimer();
 			SetupFadeTimer();
@@ -898,7 +904,7 @@ namespace ArchLight
 			SetupTrayIcon();
 			SetupTimer();
             _gammaRecoveryTimer = new System.Windows.Forms.Timer { Interval = 500 };
-            _gammaRecoveryTimer.Tick += delegate { if (!_isExiting && _settings.IsEnabled && (_fadeTimer == null || !_fadeTimer.Enabled)) GammaController.EnsureApplied(); };
+            _gammaRecoveryTimer.Tick += delegate { if (!_isExiting && _settings.IsEnabled && (_fadeTimer == null || !_fadeTimer.Enabled)) _display.Recover(); };
             _gammaRecoveryTimer.Start();
 			SetupSystemEvents();
 			CheckScheduleAndApply(true);
@@ -906,73 +912,14 @@ namespace ArchLight
 
 		private void SetupSystemEvents()
 		{
+            _displayRefreshTimer = new System.Windows.Forms.Timer { Interval = 1200 };
+            _displayRefreshTimer.Tick += delegate { RefreshDisplay(); };
 			try
 			{
-				_displayHandler = delegate
-				{
-					if (base.IsHandleCreated && !base.IsDisposed)
-					{
-						try
-						{
-							BeginInvoke((Action)delegate
-							{
-								if (!base.IsDisposed)
-								{
-									ApplyCurrentSettingsImmediate(false);
-									System.Windows.Forms.Timer t = new System.Windows.Forms.Timer
-									{
-										Interval = 1000
-									};
-									t.Tick += delegate
-									{
-										t.Stop();
-										t.Dispose();
-										if (!base.IsDisposed)
-										{
-											ApplyCurrentSettingsImmediate(false);
-										}
-									};
-									t.Start();
-								}
-							});
-						}
-						catch
-						{
-						}
-					}
-				};
+                _displayHandler = delegate { QueueDisplayRefresh(false); };
 				_powerHandler = delegate(object s, PowerModeChangedEventArgs e)
 				{
-					if (e.Mode == PowerModes.Resume && base.IsHandleCreated && !base.IsDisposed)
-					{
-						try
-						{
-							BeginInvoke((Action)delegate
-							{
-								if (!base.IsDisposed)
-								{
-									ApplyCurrentSettingsImmediate();
-									System.Windows.Forms.Timer t = new System.Windows.Forms.Timer
-									{
-										Interval = 1200
-									};
-									t.Tick += delegate
-									{
-										t.Stop();
-										t.Dispose();
-										if (!base.IsDisposed)
-										{
-											ApplyCurrentSettingsImmediate(false);
-										}
-									};
-									t.Start();
-								}
-							});
-						}
-						catch
-						{
-						}
-					}
+                    if (e.Mode == PowerModes.Resume) QueueDisplayRefresh(true);
 				};
 				SystemEvents.DisplaySettingsChanged += _displayHandler;
 				SystemEvents.PowerModeChanged += _powerHandler;
@@ -981,6 +928,32 @@ namespace ArchLight
 			{
 			}
 		}
+
+        private void QueueDisplayRefresh(bool refreshSchedule)
+        {
+            if (!IsHandleCreated || IsDisposed || _isExiting) return;
+            try
+            {
+                BeginInvoke((Action)delegate
+                {
+                    if (IsDisposed || _isExiting) return;
+                    _refreshScheduleOnDisplayChange |= refreshSchedule;
+                    _displayRefreshTimer.Stop();
+                    _displayRefreshTimer.Start();
+                });
+            }
+            catch (InvalidOperationException) { } // The window may close while the event is queued.
+        }
+
+        private void RefreshDisplay()
+        {
+            _displayRefreshTimer.Stop();
+            if (IsDisposed || _isExiting) return;
+            bool refreshSchedule = _refreshScheduleOnDisplayChange;
+            _refreshScheduleOnDisplayChange = false;
+            if (refreshSchedule) CheckScheduleAndApply(true);
+            else ApplyCurrentSettingsImmediate(false);
+        }
 
 		private void DetachSystemEvents()
 		{
@@ -1009,7 +982,7 @@ namespace ArchLight
 			_saveDebounceTimer.Tick += delegate
 			{
 				_saveDebounceTimer.Stop();
-				_settings.Save();
+				_saveSettings(_settings);
 			};
 		}
 
@@ -1026,13 +999,14 @@ namespace ArchLight
 					_currentK = _targetK;
 					_currentB = _targetB;
 					_fadeTimer.Stop();
-					GammaController.SetColorTemperatureAndBrightness((int)_currentK, (int)_currentB);
+                    if (_settings.IsEnabled) _display.Apply((int)_currentK, (int)_currentB);
+                    else _display.Restore();
 				}
 				else
 				{
 					_currentK += num * 0.28;
 					_currentB += num2 * 0.28;
-					GammaController.SetColorTemperatureAndBrightness((int)_currentK, (int)_currentB);
+                    _display.Apply((int)_currentK, (int)_currentB);
 				}
 			};
 		}
@@ -1363,7 +1337,7 @@ namespace ArchLight
 				{
 					_settings.CityName = cityInfo2.Name;
 					UpdateSolarCalculations();
-					_settings.Save();
+					_saveSettings(_settings);
 					CheckScheduleAndApply(true);
 				}
 			};
@@ -1408,7 +1382,7 @@ namespace ArchLight
 			_dtpStart.ValueChanged += delegate
 			{
 				_settings.CustomStartTime = _dtpStart.Value.TimeOfDay;
-				_settings.Save();
+				_saveSettings(_settings);
 				CheckScheduleAndApply(true);
 			};
 			_panelCustomSettings.Controls.Add(_dtpStart);
@@ -1435,7 +1409,7 @@ namespace ArchLight
 			_dtpEnd.ValueChanged += delegate
 			{
 				_settings.CustomEndTime = _dtpEnd.Value.TimeOfDay;
-				_settings.Save();
+				_saveSettings(_settings);
 				CheckScheduleAndApply(true);
 			};
 			_panelCustomSettings.Controls.Add(_dtpEnd);
@@ -1487,7 +1461,7 @@ namespace ArchLight
 				{
 					_settings.Language = languageItem.Code;
 					Loc.CurrentLang = languageItem.Code;
-					_settings.Save();
+					_saveSettings(_settings);
 					ApplyLanguageChanges();
 				}
 			};
@@ -1506,7 +1480,7 @@ namespace ArchLight
 			{
 				_settings.AutoStart = _chkAutoStart.Checked;
 				SetAutoStartRegistry(_settings.AutoStart);
-				_settings.Save();
+				_saveSettings(_settings);
 			};
 			panel6.Controls.Add(_chkAutoStart);
 			_chkMinimizeTray = new CheckBox
@@ -1523,7 +1497,7 @@ namespace ArchLight
 			_chkMinimizeTray.CheckedChanged += delegate
 			{
 				_settings.MinimizeToTray = _chkMinimizeTray.Checked;
-				_settings.Save();
+				_saveSettings(_settings);
 			};
 			panel6.Controls.Add(_chkMinimizeTray);
 			_btnExitApp = new ModernButton
@@ -1547,7 +1521,7 @@ namespace ArchLight
 			{
 				Location = new Point(10, 88),
 				Size = new Size(362, 22),
-				Text = "ArchLight v0.5.4  •  x64 / x86 / ARM64  •  Hafif & Güvenli",
+				Text = "ArchLight v0.5.5  •  x64 / x86 / ARM64  •  Hafif & Güvenli",
 				Font = new Font("Segoe UI", 8f),
 				ForeColor = Color.FromArgb(190, 190, 205),
 				TextAlign = ContentAlignment.MiddleCenter
@@ -1622,7 +1596,7 @@ namespace ArchLight
 			_settings.IsEnabled = !_settings.IsEnabled;
 			UpdateToggleButtonState();
 			ApplyCurrentSettingsImmediate();
-			_settings.Save();
+			_saveSettings(_settings);
 		}
 
 		private void HandleKelvinChange()
@@ -1827,7 +1801,7 @@ namespace ArchLight
 				}
 				UpdateLabels();
 				ApplyCurrentSettingsImmediate();
-				_settings.Save();
+				_saveSettings(_settings);
 			};
 			return button2;
 		}
@@ -1865,7 +1839,7 @@ namespace ArchLight
 		{
 			_settings.ScheduleMode = mode;
 			UpdateSegmentedModeButtons();
-			_settings.Save();
+			_saveSettings(_settings);
 			CheckScheduleAndApply(true);
 		}
 
@@ -2028,6 +2002,7 @@ namespace ArchLight
 
 		private void CheckScheduleAndApply(bool force)
 		{
+            if (_scheduleTimer != null) _scheduleTimer.Enabled = _settings.ScheduleMode != 2;
 			if (_settings.ScheduleMode == 2)
 			{
 				if (force)
@@ -2145,6 +2120,7 @@ namespace ArchLight
 
 		private void ApplyCurrentSettingsImmediate(bool smooth = true)
 		{
+            if (_gammaRecoveryTimer != null) _gammaRecoveryTimer.Enabled = _settings.IsEnabled;
 			if (_settings.IsEnabled)
 			{
 				_targetK = _settings.Kelvin;
@@ -2170,7 +2146,8 @@ namespace ArchLight
 			{
 				_fadeTimer.Stop();
 			}
-			GammaController.SetColorTemperatureAndBrightness((int)_currentK, (int)_currentB);
+            if (_settings.IsEnabled) _display.Apply((int)_currentK, (int)_currentB);
+            else _display.Restore();
 		}
 
 		private void SetupTrayIcon()
@@ -2236,7 +2213,7 @@ namespace ArchLight
 
 		protected override void OnFormClosing(FormClosingEventArgs e)
 		{
-			if (e.CloseReason == CloseReason.UserClosing && _settings.MinimizeToTray)
+			if (!_isExiting && e.CloseReason == CloseReason.UserClosing && _settings.MinimizeToTray)
 			{
 				e.Cancel = true;
 				Hide();
@@ -2246,22 +2223,32 @@ namespace ArchLight
 					_trayIcon.ShowBalloonTip(1500, "ArchLight", Loc.T("ClickToToggle") + " | " + Loc.T("HotkeyHint"), ToolTipIcon.Info);
 				}
 			}
-			else
-			{
-				ExitApplication();
-			}
 			base.OnFormClosing(e);
 		}
 
 		private void ExitApplication()
 		{
-			if (!_isExiting)
-			{
-				_isExiting = true;
+            if (_isExiting) return;
+            _isExiting = true;
+            Close();
+        }
+
+        protected override void Dispose(bool disposing)
+        {
+            try { if (disposing) ReleaseResources(); }
+            finally { base.Dispose(disposing); }
+        }
+
+        private void ReleaseResources()
+        {
+            if (_resourcesReleased) return;
+            _resourcesReleased = true;
+            _isExiting = true;
                 if (_gammaRecoveryTimer != null) { _gammaRecoveryTimer.Stop(); _gammaRecoveryTimer.Dispose(); _gammaRecoveryTimer = null; }
+                if (_displayRefreshTimer != null) { _displayRefreshTimer.Stop(); _displayRefreshTimer.Dispose(); _displayRefreshTimer = null; }
 				try
 				{
-					UnregisterHotKey(base.Handle, 9001);
+                    if (IsHandleCreated) UnregisterHotKey(base.Handle, 9001);
 				}
 				catch
 				{
@@ -2285,17 +2272,17 @@ namespace ArchLight
 					_fadeTimer.Dispose();
 					_fadeTimer = null;
 				}
-				GammaController.RestoreDefault();
+                if (_display != null) _display.Restore();
 				if (_trayIcon != null)
 				{
 					_trayIcon.Visible = false;
 					_trayIcon.Dispose();
 					_trayIcon = null;
 				}
-				_settings.Save();
-				Application.ExitThread();
-				Environment.Exit(0);
-			}
+                if (_trayMenu != null) { _trayMenu.Dispose(); _trayMenu = null; }
+                if (_picLogo != null && _picLogo.Image != null) { _picLogo.Image.Dispose(); _picLogo.Image = null; }
+                if (Icon != null) { Icon.Dispose(); Icon = null; }
+                if (_settings != null && _saveSettings != null) _saveSettings(_settings);
 		}
 
 		public static Bitmap CreateLogoBitmap(int size) { return ArchLightBrand.LogoArtwork.Render(size); }
@@ -2397,14 +2384,21 @@ namespace ArchLight
 			{
 				Application.EnableVisualStyles();
 				Application.SetCompatibleTextRenderingDefault(false);
-				Application.Run(new MainForm());
+                using (MainForm form = new MainForm()) Application.Run(form);
 			}
 			catch (Exception ex)
 			{
-				File.WriteAllText(Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "hata.log"), ex.ToString(), Encoding.UTF8);
+                try
+                {
+                    string directory = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "ArcLight");
+                    Directory.CreateDirectory(directory);
+                    File.WriteAllText(Path.Combine(directory, "hata.log"), ex.ToString(), Encoding.UTF8);
+                }
+                catch { } // Failure to write diagnostics must not mask the original failure.
 			}
 			finally
 			{
+                GammaController.RestoreDefault();
 				if (_appMutex != null)
 				{
 					_appMutex.ReleaseMutex();

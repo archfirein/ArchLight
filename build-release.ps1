@@ -1,8 +1,9 @@
-param([string]$Compiler, [string]$OutputDirectory)
+param([string]$Compiler, [string]$OutputDirectory, [string]$BuildDirectory)
 $ErrorActionPreference = 'Stop'
 if (-not $OutputDirectory) { $OutputDirectory = Join-Path $PSScriptRoot 'release' }
 $OutputDirectory = [IO.Path]::GetFullPath($OutputDirectory)
-$buildDirectory = Join-Path $PSScriptRoot '.build'
+if (-not $BuildDirectory) { $BuildDirectory = Join-Path $PSScriptRoot 'work\build' }
+$buildDirectory = [IO.Path]::GetFullPath($BuildDirectory)
 New-Item -ItemType Directory -Force -Path $buildDirectory,$OutputDirectory | Out-Null
 if (-not $Compiler) {
     $Compiler = Join-Path $buildDirectory 'compiler/tasks/net472/csc.exe'
@@ -18,26 +19,32 @@ try {
     $iconBuilder = Join-Path $buildDirectory 'GenerateIcon.exe'
     & $Compiler /nologo /codepage:65001 /target:exe "/out:$iconBuilder" /r:System.Drawing.dll /resource:logo.png,ArchLight.Logo.png GenerateIcon.cs LogoArtwork.cs
     if ($LASTEXITCODE -ne 0) { throw 'Icon builder compilation failed' }
-    & $iconBuilder
-    if ($LASTEXITCODE -ne 0) { throw 'Icon generation failed' }
+    Push-Location $buildDirectory
+    try {
+        & $iconBuilder
+        if ($LASTEXITCODE -ne 0) { throw 'Icon generation failed' }
+    } finally { Pop-Location }
+    $generatedIcon = Join-Path $buildDirectory 'app.ico'
     foreach ($architecture in @('x64','x86','arm64')) {
         $stage = Join-Path $buildDirectory $architecture
         New-Item -ItemType Directory -Force -Path $stage | Out-Null
         $application = Join-Path $stage 'ArchLight.exe'
-        & $Compiler /nologo /codepage:65001 /deterministic+ /target:winexe "/platform:$architecture" /optimize+ /win32icon:app.ico "/out:$application" /r:System.Windows.Forms.dll /r:System.Drawing.dll /resource:logo.png,ArchLight.Logo.png Program.cs Settings.cs StartupRegistration.cs LogoArtwork.cs ModernUI.cs
+        & $Compiler /nologo /codepage:65001 /deterministic+ /target:winexe "/platform:$architecture" /optimize+ "/win32icon:$generatedIcon" "/out:$application" /r:System.Windows.Forms.dll /r:System.Drawing.dll /resource:logo.png,ArchLight.Logo.png Program.cs Settings.cs StartupRegistration.cs LogoArtwork.cs ModernUI.cs
         if ($LASTEXITCODE -ne 0) { throw "Application build failed: $architecture" }
         $uninstaller = Join-Path $stage 'Uninstall.exe'
         & $Compiler /nologo /target:winexe "/platform:$architecture" /optimize+ "/out:$uninstaller" /r:System.Windows.Forms.dll Uninstaller.cs StartupRegistration.cs
         if ($LASTEXITCODE -ne 0) { throw "Uninstaller build failed: $architecture" }
         $installer = Join-Path $OutputDirectory "ArchLight-Installer.win-$architecture.exe"
-        & $Compiler /nologo /codepage:65001 /deterministic+ /target:winexe "/platform:$architecture" /optimize+ /win32icon:app.ico "/out:$installer" "/resource:$application,ArchLight.exe" "/resource:$uninstaller,Uninstall.exe" /r:System.Windows.Forms.dll /r:System.Drawing.dll /r:Microsoft.CSharp.dll /resource:logo.png,ArchLight.Logo.png Installer.cs LogoArtwork.cs Settings.cs StartupRegistration.cs
+        & $Compiler /nologo /codepage:65001 /deterministic+ /target:winexe "/platform:$architecture" /optimize+ "/win32icon:$generatedIcon" "/out:$installer" "/resource:$application,ArchLight.exe" "/resource:$uninstaller,Uninstall.exe" /r:System.Windows.Forms.dll /r:System.Drawing.dll /r:Microsoft.CSharp.dll /resource:logo.png,ArchLight.Logo.png Installer.cs LogoArtwork.cs Settings.cs StartupRegistration.cs
         if ($LASTEXITCODE -ne 0) { throw "Installer build failed: $architecture" }
         Copy-Item -LiteralPath README.md -Destination (Join-Path $stage 'README.md')
         Compress-Archive -Path $application,(Join-Path $stage 'README.md') -DestinationPath (Join-Path $OutputDirectory "ArchLight.win-$architecture.zip") -Force
     }
-    $sourceFiles = @('Program.cs','StartupRegistration.cs','Uninstaller.cs','ModernUI.cs','Settings.cs','Installer.cs','GenerateIcon.cs','LogoArtwork.cs','logo.png','app.ico','README.md','CHANGELOG.md','build-release.ps1','SettingsTests.cs','RecoveryTests.cs','BrandTests.cs','layout-results.txt')
-    Compress-Archive -Path $sourceFiles -DestinationPath (Join-Path $OutputDirectory 'Source.code.zip') -Force
-    & tar -czf (Join-Path $OutputDirectory 'Source.code.tar.gz') @sourceFiles
+    $dirty = & git status --porcelain --untracked-files=no
+    if ($LASTEXITCODE -ne 0 -or $dirty) { throw 'Release source must be built from a clean committed checkout.' }
+    & git archive --format=zip --prefix=ArchLight/ "--output=$(Join-Path $OutputDirectory 'Source.code.zip')" HEAD
+    if ($LASTEXITCODE -ne 0) { throw 'Source ZIP archive failed' }
+    & git archive --format=tar.gz --prefix=ArchLight/ "--output=$(Join-Path $OutputDirectory 'Source.code.tar.gz')" HEAD
     if ($LASTEXITCODE -ne 0) { throw 'Source tar archive failed' }
     $sums = Get-ChildItem -LiteralPath $OutputDirectory -File | Where-Object { $_.Name -match '^(ArchLight.*\.(exe|zip)|Source\.code\.(zip|tar\.gz))$' } | Sort-Object Name | ForEach-Object {
         (Get-FileHash -LiteralPath $_.FullName -Algorithm SHA256).Hash.ToLowerInvariant() + '  ' + $_.Name

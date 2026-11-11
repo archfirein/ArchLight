@@ -17,6 +17,14 @@ class RecoveryTests {
  var rounded=Ramp(180);rounded.Blue[255]+=255;Check(GammaController.RampsMatch(desired,rounded),"8-bit driver quantization tolerated");
  rounded.Blue[255]+=2;Check(!GammaController.RampsMatch(desired,rounded),"material mismatch detected");
  GammaController.ExpectedRamp=null;writes=0;Check(!GammaController.Recover(()=>actual,r=>{writes++;return true;},now)&&writes==0,"no target means no writes");
- Console.WriteLine("11 tests passed");
+ var calibration=Ramp(230);GammaController.SaveOriginal(()=>calibration);GammaController.SetExpected(desired);
+ GammaController.RAMP restored=default(GammaController.RAMP);writes=0;
+ Check(GammaController.RestoreDefault(r=>{writes++;restored=r;return true;}),"restore succeeds with mocked display");
+ Check(writes==1 && GammaController.RampsMatch(restored,calibration),"exact saved calibration restored instead of approximate 6500K");
+ Check(!GammaController.ExpectedRamp.HasValue,"disabled filter clears recovery target");
+ Check(!GammaController.Recover(()=>actual,r=>{writes++;return true;},now.AddMinutes(1))&&writes==1,"recovery cannot reapply disabled filter");
+ GammaController.RestoreDefault(r=>{writes++;return true;});Check(writes==1,"repeated disposal does not overwrite display again");
+ GammaController.SetExpected(desired);Check(!GammaController.RestoreDefault(r=>false)&&!GammaController.ExpectedRamp.HasValue,"rejected restore still stops active recovery");
+ Console.WriteLine("17 tests passed");
  }
 }

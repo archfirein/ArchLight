@@ -1,0 +1,67 @@
+name: Validate and publish Windows release
+
+on:
+  push:
+    branches: [main]
+    paths: [RELEASE_NOTES.md, .github/workflows/release.yml]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: archlight-release
+  cancel-in-progress: false
+
+jobs:
+  release:
+    runs-on: windows-latest
+    timeout-minutes: 20
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Run isolated regression suites
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Path release -Force | Out-Null
+          ./test-stability.ps1 -OutputDirectory "$env:RUNNER_TEMP/archlight-tests" | Tee-Object -FilePath release/TestResults.txt
+          if ($LASTEXITCODE -ne 0) { throw 'Regression tests failed' }
+      - name: Build x64, x86 and ARM64 packages
+        shell: pwsh
+        run: ./build-release.ps1 -OutputDirectory ./release -BuildDirectory "$env:RUNNER_TEMP/archlight-build"
+      - name: Verify architecture, embedded payloads, checksums and committed source
+        shell: pwsh
+        run: |
+          python ./verify-release.py --release-directory ./release --build-directory "$env:RUNNER_TEMP/archlight-build"
+          if ($LASTEXITCODE -ne 0) { throw 'Package verification failed' }
+      - name: Retain validated packages
+        uses: actions/upload-artifact@v4
+        with:
+          name: ArchLight-validated-release
+          path: release/*
+          if-no-files-found: error
+      - name: Publish new release without replacing existing tags or assets
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          RELEASE_COMMIT: ${{ github.sha }}
+        run: |
+          $source = Get-Content -LiteralPath Program.cs -Raw
+          $match = [regex]::Match($source, 'AssemblyVersion\("([0-9]+\.[0-9]+\.[0-9]+)\.0"\)')
+          if (-not $match.Success) { throw 'Release version not found' }
+          $version = $match.Groups[1].Value
+          $tag = "v$version"
+          $remoteTag = git ls-remote --tags origin "refs/tags/$tag"
+          if ($LASTEXITCODE -ne 0) { throw 'Unable to check release tag' }
+          if ($remoteTag) { throw "Tag $tag already exists; refusing to replace it." }
+          $release = gh api "repos/$env:GH_REPO/releases/tags/$tag" 2>$null
+          if ($LASTEXITCODE -eq 0) { throw "Release $tag already exists; refusing to replace it." }
+          $global:LASTEXITCODE = 0
+          $assets = @(Get-ChildItem -LiteralPath release -File | ForEach-Object FullName)
+          gh release create $tag @assets --target $env:RELEASE_COMMIT --title "ArchLight $version - Stability and Display Recovery" --notes-file RELEASE_NOTES.md --latest
+          if ($LASTEXITCODE -ne 0) { throw 'Release publication failed' }

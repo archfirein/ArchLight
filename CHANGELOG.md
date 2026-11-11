@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.5.5 — 2026-11-11
+
+- Restore the captured display calibration after switching off the filter and clear its recovery target.
+- Re-evaluate the active schedule after resume and combine display-change bursts into one owned, disposable timer.
+- Reduce stable gamma reads to once every two seconds; back off after driver exceptions as well as failed writes.
+- Stop unused manual-schedule and disabled-filter recovery timers.
+- Replace forced process termination with normal form disposal; release timers, system event handlers, tray menu, icon and logo, flush preferences once, and restore gamma on exceptional startup exits.
+- Keep crash logging in the writable user-profile settings directory, without allowing diagnostic write failures to mask the original error.
+- Add mocked lifecycle and workload regression tests and a repeatable Windows test runner.
+
 ## 0.5.4 — 2026-10-25
 
 - Removed the permanently accented theme-selector border; both selectors are neutral while idle and highlighted while open or keyboard-focused.
